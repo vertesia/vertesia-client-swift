@@ -48,7 +48,7 @@ import Testing
 
 @Test func resumesCallerCursorAndAcceptsServerRetryHint() async throws {
     let fixture = StreamFixture([
-        .sse(": heartbeat\nretry: 5000\n\n", connectionLost: true),
+        .sse(": heartbeat\nretry: 5000\n\n"),
         .status(204),
     ])
     var stream = fixture.stream(resumingFrom: .init(lastEventID: "1700000000000")) { "token" }
@@ -61,6 +61,17 @@ import Testing
     #expect(fixture.requests.allSatisfy { $0.value(forHTTPHeaderField: "Last-Event-ID") == "1700000000000" })
     #expect(fixture.requests.allSatisfy { $0.query("since").flatMap { Double($0) } == 1_700_000_000_000 })
     #expect(retryDelays.value == [.seconds(5)])
+}
+
+@Test func reconnectsAfterAnAbruptNetworkFailure() async throws {
+    let fixture = StreamFixture([.networkLoss, .status(204)])
+    let stream = fixture.stream(resumingFrom: .init(lastEventID: "stored-id", since: 100)) { "token" }
+    var iterator = stream.makeAsyncIterator()
+
+    #expect(try await iterator.next() == nil)
+    #expect(fixture.requests.count == 2)
+    #expect(fixture.requests.allSatisfy { $0.value(forHTTPHeaderField: "Last-Event-ID") == "stored-id" })
+    #expect(fixture.requests.allSatisfy { $0.query("since").flatMap { Double($0) } == 100 })
 }
 
 @Test func finishesAnArchivedReplayAfterDrainingIt() async throws {
@@ -169,7 +180,8 @@ private final class StreamFixture {
 
 private final class StubSSEProtocol: URLProtocol, @unchecked Sendable {
     enum Reply {
-        case sse(String, staysOpen: Bool = false, connectionLost: Bool = false)
+        case sse(String, staysOpen: Bool = false)
+        case networkLoss
         case status(Int, contentType: String = "application/json")
     }
 
@@ -195,17 +207,15 @@ private final class StubSSEProtocol: URLProtocol, @unchecked Sendable {
         script.requests.withValue { $0.append(request) }
         let reply = script.responses.withValue { $0.isEmpty ? .status(418) : $0.removeFirst() }
         switch reply {
-        case .sse(let body, let staysOpen, let connectionLost):
+        case .sse(let body, let staysOpen):
             respond(url, status: 200, contentType: "text/event-stream; charset=utf-8")
             let data = Data(body.utf8)
             let middle = data.count / 2
             client?.urlProtocol(self, didLoad: data.prefix(middle))
             client?.urlProtocol(self, didLoad: data.dropFirst(middle))
-            if connectionLost {
-                client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost))
-            } else if !staysOpen {
-                client?.urlProtocolDidFinishLoading(self)
-            }
+            if !staysOpen { client?.urlProtocolDidFinishLoading(self) }
+        case .networkLoss:
+            client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost))
         case .status(let code, let contentType):
             respond(url, status: code, contentType: contentType)
             client?.urlProtocolDidFinishLoading(self)
