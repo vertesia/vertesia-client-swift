@@ -19,6 +19,7 @@ import VertesiaClient
     #expect(firstQuery.first { $0.name == "limit" }?.value == "10")
     #expect(secondQuery.first { $0.name == "limit" }?.value == "20")
     #expect(first.headers["x-api-version"] == VertesiaClient.apiVersion)
+    #expect(first.headers["Accept"] == "application/json, */*;q=0.8")
 
     let run = client.agentRuns.getAgentRunWithRequestBuilder(agentRunId: "folder/run%2F")
     #expect(run.URLString == "https://example.com/api/v1/agents/folder%2Frun%252F")
@@ -170,4 +171,21 @@ private final class EchoAuthorizationProtocol: URLProtocol, @unchecked Sendable 
     }
 
     override func stopLoading() {}
+}
+
+@Test func preservesPromptReferenceWireVariants() throws {
+    let decoder = JSONDecoder()
+    let encoder = JSONEncoder()
+    let id = "68b1779130afe5403a1589ba"
+    let scalar = Data("\"\(id)\"".utf8)
+    #expect(try decoder.decode(InteractionProject.self, from: scalar) == .typeString(id))
+    #expect(try encoder.encode(InteractionPromptSegmentInputTemplate.typeString(id)) == scalar)
+    #expect(try decoder.decode(PromptSegmentDefTemplate.self, from: scalar) == .typeString(id))
+
+    let populated = Data(#"{"id":"68b1779130afe5403a1589ba","name":"Studio","namespace":"studio","account":"68b1779130afe5403a1589bb"}"#.utf8)
+    guard case .typeProjectRef(let project) = try decoder.decode(InteractionProject.self, from: populated) else {
+        Issue.record("Expected a populated project reference.")
+        return
+    }
+    #expect(project.id == id)
 }

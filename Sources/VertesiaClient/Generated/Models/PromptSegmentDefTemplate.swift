@@ -7,110 +7,36 @@
 
 import Foundation
 
-public struct PromptSegmentDefTemplate: Sendable, Codable, Hashable {
-
-    public static let editRevisionRule = NumericRule<Int>(minimum: 1, exclusiveMinimum: false, maximum: 9007199254740991, exclusiveMaximum: false, multipleOf: nil)
-    public var role: PromptRole
-    public var content: String
-    public var contentType: TemplateType
-    public var inputSchema: JSONSchema?
-    public var id: String
-    public var name: String
-    public var status: PromptStatus
-    public var version: Double
-    /** Monotonic edit revision used to detect concurrent updates. */
-    public var editRevision: Int
-    public var parent: String?
-    public var description: String?
-    public var testData: [String: JSONValue?]?
-    public var script: String?
-    public var project: InteractionProject
-    public var tags: [String]?
-    public var lastPublishedAt: Date?
-    public var createdBy: String
-    public var updatedBy: String
-    public var createdAt: Date
-    public var updatedAt: Date
-
-    public init(role: PromptRole, content: String, contentType: TemplateType, inputSchema: JSONSchema? = nil, id: String, name: String, status: PromptStatus, version: Double, editRevision: Int, parent: String? = nil, description: String? = nil, testData: [String: JSONValue?]? = nil, script: String? = nil, project: InteractionProject, tags: [String]? = nil, lastPublishedAt: Date? = nil, createdBy: String, updatedBy: String, createdAt: Date, updatedAt: Date) {
-        self.role = role
-        self.content = content
-        self.contentType = contentType
-        self.inputSchema = inputSchema
-        self.id = id
-        self.name = name
-        self.status = status
-        self.version = version
-        self.editRevision = editRevision
-        self.parent = parent
-        self.description = description
-        self.testData = testData
-        self.script = script
-        self.project = project
-        self.tags = tags
-        self.lastPublishedAt = lastPublishedAt
-        self.createdBy = createdBy
-        self.updatedBy = updatedBy
-        self.createdAt = createdAt
-        self.updatedAt = updatedAt
-    }
-
-    public enum CodingKeys: String, CodingKey, CaseIterable {
-        case role
-        case content
-        case contentType = "content_type"
-        case inputSchema
-        case id
-        case name
-        case status
-        case version
-        case editRevision = "edit_revision"
-        case parent
-        case description
-        case testData = "test_data"
-        case script
-        case project
-        case tags
-        case lastPublishedAt = "last_published_at"
-        case createdBy = "created_by"
-        case updatedBy = "updated_by"
-        case createdAt = "created_at"
-        case updatedAt = "updated_at"
-    }
-
-    // Encodable protocol methods
+public enum PromptSegmentDefTemplate: Sendable, Codable, Hashable {
+    case typePromptTemplate(PromptTemplate)
+    case typePromptTemplateRef(PromptTemplateRef)
+    case typeString(String)
+    case unknownDefaultOpenApi(JSONValue)
 
     public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(role, forKey: .role)
-        try container.encode(content, forKey: .content)
-        try container.encode(contentType, forKey: .contentType)
-        try container.encodeIfPresent(inputSchema, forKey: .inputSchema)
-        try container.encode(id, forKey: .id)
-        try container.encode(name, forKey: .name)
-        try container.encode(status, forKey: .status)
-        try container.encode(version, forKey: .version)
-        try container.encode(editRevision, forKey: .editRevision)
-        try container.encodeIfPresent(parent, forKey: .parent)
-        try container.encodeIfPresent(description, forKey: .description)
-        try container.encodeIfPresent(testData, forKey: .testData)
-        try container.encodeIfPresent(script, forKey: .script)
-        try container.encode(project, forKey: .project)
-        try container.encodeIfPresent(tags, forKey: .tags)
-        try container.encodeIfPresent(lastPublishedAt, forKey: .lastPublishedAt)
-        try container.encode(createdBy, forKey: .createdBy)
-        try container.encode(updatedBy, forKey: .updatedBy)
-        try container.encode(createdAt, forKey: .createdAt)
-        try container.encode(updatedAt, forKey: .updatedAt)
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .typePromptTemplate(let value):
+            try container.encode(value)
+        case .typePromptTemplateRef(let value):
+            try container.encode(value)
+        case .typeString(let value):
+            try container.encode(value)
+        case .unknownDefaultOpenApi(let raw):
+            try container.encode(raw)
+        }
     }
-}
 
-
-extension PromptSegmentDefTemplate: UnknownCaseCheckable {
-    public var containsUnknownDefaultOpenApiCase: Bool {
-        if role == .unknownDefaultOpenApi { return true }
-        if contentType == .unknownDefaultOpenApi { return true }
-        if status == .unknownDefaultOpenApi { return true }
-        return false
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let value = try? container.decode(PromptTemplate.self), (value as? UnknownCaseCheckable)?.containsUnknownDefaultOpenApiCase != true {
+            self = .typePromptTemplate(value)
+        } else if let value = try? container.decode(PromptTemplateRef.self), (value as? UnknownCaseCheckable)?.containsUnknownDefaultOpenApiCase != true {
+            self = .typePromptTemplateRef(value)
+        } else if let value = try? container.decode(String.self), (value as? UnknownCaseCheckable)?.containsUnknownDefaultOpenApiCase != true {
+            self = .typeString(value)
+        } else {
+            self = .unknownDefaultOpenApi(try JSONValue(from: decoder))
+        }
     }
 }

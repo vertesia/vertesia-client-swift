@@ -37,6 +37,7 @@ public struct VertesiaClient: Sendable {
         bearerTokenInterceptor = BearerTokenInterceptor(provider: bearerTokenProvider)
         apiConfiguration = VertesiaClientAPIConfiguration(
             basePath: path.hasSuffix("/") ? String(path.dropLast()) : path,
+            customHeaders: ["x-api-version": Self.apiVersion, "Accept": "application/json, */*;q=0.8"],
             interceptor: bearerTokenInterceptor
         )
     }

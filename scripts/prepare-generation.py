@@ -32,8 +32,21 @@ def prepare_parameters(parameters):
     return result
 
 
+def preserve_prompt_reference_shapes(spec):
+    schemas = spec["components"]["schemas"]
+    for name in ("Interaction", "InteractionPromptTemplateInput", "PromptTemplate"):
+        project = schemas[name]["properties"]["project"]
+        project["oneOf"] = project.pop("anyOf")
+    for name in ("InteractionPromptSegmentInput", "PromptSegmentDef"):
+        template = schemas[name]["properties"]["template"]
+        template["oneOf"] = template.pop("anyOf")
+
+
 def prepare_spec(source, destination):
     spec = json.loads(source.read_text())
+    # Swift flattens anyOf into a struct and drops the string branch. Use the
+    # union template for fields that accept an ID or a full reference object.
+    preserve_prompt_reference_shapes(spec)
     for path, operations in list(spec["paths"].items()):
         # The transport sets the SDK's default API version once per client.
         if "parameters" in operations:

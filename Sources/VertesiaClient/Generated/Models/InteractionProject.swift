@@ -7,35 +7,31 @@
 
 import Foundation
 
-public struct InteractionProject: Sendable, Codable, Hashable {
-
-    public var id: String
-    public var name: String
-    public var account: String
-    /** Only set when fetching the list of projects visible to an user which is an org admin or owner. If present and true, it means that the project is not accessible to the user.(even if it visible in listing) If not present or false then the project is accessible to the user. */
-    public var restricted: Bool?
-
-    public init(id: String, name: String, account: String, restricted: Bool? = nil) {
-        self.id = id
-        self.name = name
-        self.account = account
-        self.restricted = restricted
-    }
-
-    public enum CodingKeys: String, CodingKey, CaseIterable {
-        case id
-        case name
-        case account
-        case restricted
-    }
-
-    // Encodable protocol methods
+public enum InteractionProject: Sendable, Codable, Hashable {
+    case typeProjectRef(ProjectRef)
+    case typeString(String)
+    case unknownDefaultOpenApi(JSONValue)
 
     public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(id, forKey: .id)
-        try container.encode(name, forKey: .name)
-        try container.encode(account, forKey: .account)
-        try container.encodeIfPresent(restricted, forKey: .restricted)
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .typeProjectRef(let value):
+            try container.encode(value)
+        case .typeString(let value):
+            try container.encode(value)
+        case .unknownDefaultOpenApi(let raw):
+            try container.encode(raw)
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let value = try? container.decode(ProjectRef.self), (value as? UnknownCaseCheckable)?.containsUnknownDefaultOpenApiCase != true {
+            self = .typeProjectRef(value)
+        } else if let value = try? container.decode(String.self), (value as? UnknownCaseCheckable)?.containsUnknownDefaultOpenApiCase != true {
+            self = .typeString(value)
+        } else {
+            self = .unknownDefaultOpenApi(try JSONValue(from: decoder))
+        }
     }
 }
