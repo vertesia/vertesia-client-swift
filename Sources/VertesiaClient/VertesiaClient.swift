@@ -9,6 +9,7 @@ public struct VertesiaClient: Sendable {
 
     /// The configuration shared by this client's generated API groups.
     public let apiConfiguration: VertesiaClientAPIConfiguration
+    let bearerTokenInterceptor: BearerTokenInterceptor
 
     public var accounts: AccountsAPI { AccountsAPI(apiConfiguration: apiConfiguration) }
     public var agentRuns: AgentRunsAPI { AgentRunsAPI(apiConfiguration: apiConfiguration) }
@@ -33,9 +34,10 @@ public struct VertesiaClient: Sendable {
         bearerTokenProvider: @escaping @Sendable () async throws -> String
     ) {
         let path = baseURL.absoluteString
+        bearerTokenInterceptor = BearerTokenInterceptor(provider: bearerTokenProvider)
         apiConfiguration = VertesiaClientAPIConfiguration(
             basePath: path.hasSuffix("/") ? String(path.dropLast()) : path,
-            interceptor: BearerTokenInterceptor(provider: bearerTokenProvider)
+            interceptor: bearerTokenInterceptor
         )
     }
 }
@@ -44,8 +46,18 @@ public enum VertesiaAuthenticationError: Error {
     case invalidBearerToken
 }
 
-private struct BearerTokenInterceptor: OpenAPIInterceptor {
+struct BearerTokenInterceptor: OpenAPIInterceptor {
     let provider: @Sendable () async throws -> String
+
+    func authorize(_ urlRequest: URLRequest) async throws -> URLRequest {
+        let token = try await provider()
+        guard !token.isEmpty, token.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else {
+            throw VertesiaAuthenticationError.invalidBearerToken
+        }
+        var request = urlRequest
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        return request
+    }
 
     func intercept<T>(
         urlRequest: URLRequest,
@@ -60,13 +72,7 @@ private struct BearerTokenInterceptor: OpenAPIInterceptor {
 
         Task {
             do {
-                let token = try await provider()
-                guard !token.isEmpty, token.rangeOfCharacter(from: .whitespacesAndNewlines) == nil else {
-                    throw VertesiaAuthenticationError.invalidBearerToken
-                }
-                var request = urlRequest
-                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-                completion(.success(request))
+                completion(.success(try await authorize(urlRequest)))
             } catch {
                 completion(.failure(error))
             }

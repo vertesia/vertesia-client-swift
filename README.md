@@ -36,12 +36,28 @@ The default endpoint is `https://api.vertesia.io/api/v1`. Pass `baseURL` to sele
 
 Operations offer async convenience methods and `…WithRequestBuilder()` for access to the HTTP response. Operations with optional arguments also have typed `…Request()` builders. Pass required arguments at creation and set optional ones by name. Builders are values, so two queries can share a starting configuration. Call `build()` to customize headers before execution.
 
+### Stream agent runs
+
+Use `streamAgentRun` to read historical and live messages as they arrive on iOS and macOS. It uses the same bearer-token provider as other SDK calls and obtains a current token for each connection.
+
+```swift
+var cursor = AgentRunStreamCursor() // Or restore the cursor saved for this run.
+for try await event in client.streamAgentRun(agentRunId: runID, resumingFrom: cursor) {
+    render(event.message)
+    cursor = event.cursor
+}
+```
+
+The cursor is `Codable`. Save it after processing an event and supply it when you reopen the same run. Reconnects send `Last-Event-ID` when available and a `since` timestamp so they can also resume on servers that replay by timestamp. Transient streaming chunks are delivered without advancing the cursor.
+
+The stream retries interrupted connections with bounded backoff. Cancel the consuming task when the view closes or when the app has received the messages it needs. Interactive runs can keep producing messages across turns. Archived replay and HTTP 204 responses close the sequence.
+
 ### Compatibility
 
 - Model decoding accepts additional response fields. Explicitly modeled free-form JSON uses `JSONValue`.
 - Unknown values in generated string and numeric enums decode as `.unknownDefaultOpenApi`. The sentinel cannot reproduce the original value when re-encoded.
 - Generated `oneOf` unions retain unknown variants as `.unknownDefaultOpenApi(JSONValue)`, including nested nulls. A known discriminator still requires its declared branch to decode. Model options preserve mixed provider fields as an open JSON object. Other `anyOf` shapes use the upstream generator’s representations.
-- Server-sent event operations are currently outside the package's generated HTTP surface.
+- Agent-run messages use the native SSE client. Other SSE endpoints are outside the generated HTTP surface.
 
 ## Regeneration
 
