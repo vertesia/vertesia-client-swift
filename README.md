@@ -119,6 +119,8 @@ The stream retries interrupted connections with bounded backoff. Cancel the cons
 
 Run the offline suite with `swift test`. It covers request builders, decoding, SSE, and authentication exchanges without credentials.
 
+GitHub Actions checks regeneration and runs the portable tests on Linux. The `ApplePlatformTests` suite runs on macOS and covers native SSE and OAuth PKCE.
+
 Pass Studio's shared fixture directory to run the same response fixtures used by the Go and Java SDKs.
 
 ```sh

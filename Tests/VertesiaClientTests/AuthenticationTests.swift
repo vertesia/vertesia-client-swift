@@ -142,76 +142,78 @@ func federationExchangeUsesTheSelectedClientAuthentication(_ mode: FederationAut
     ])
 }
 
-#if canImport(CryptoKit)
-@Test func oauthValidatesCallbackAndRotatesCredentials() async throws {
-    let transport = TokenTestTransport([
-        .init(#"{"access_token":"oauth-1","token_type":"Bearer","expires_in":100,"refresh_token":"refresh-1"}"#),
-        .init(#"{"access_token":"oauth-2","token_type":"Bearer","expires_in":100,"refresh_token":"refresh-2"}"#),
-        .init(#"{"access_token":"oauth-3","token_type":"Bearer","expires_in":100}"#),
-    ])
-    let resource = VertesiaClient.defaultBaseURL
-    let oauth = try VertesiaOAuthClient(
-        clientID: "app + id",
-        authorizationEndpoint: URL(string: "https://login.example.org/oauth/authorize?issuer=dev")!,
-        tokenEndpoint: URL(string: "https://sts.example.org/oauth/token")!,
-        redirectURI: URL(string: "org.example.desktop:/callback?fixed=desktop")!,
-        resource: resource, scopes: ["offline_access", "content:read"],
-        issuer: URL(string: "https://sts.example.org")!, endpoint: transport.endpoint
-    )
-    let login = try oauth.beginAuthorization()
-    let query = try #require(URLComponents(url: login.url, resolvingAgainstBaseURL: false)?.percentEncodedQuery)
-    let parameters = try decodeForm(query)
-    let state = try #require(parameters["state"])
-    #expect(state.count == 43)
-    #expect(parameters["client_id"] == "app + id")
-    #expect(parameters["response_type"] == "code")
-    #expect(parameters["code_challenge_method"] == "S256")
-    #expect(parameters["issuer"] == "dev")
-    #expect(parameters["scope"] == "offline_access content:read")
+#if canImport(Darwin) && canImport(CryptoKit)
+extension ApplePlatformTests {
+    @Test func oauthValidatesCallbackAndRotatesCredentials() async throws {
+        let transport = TokenTestTransport([
+            .init(#"{"access_token":"oauth-1","token_type":"Bearer","expires_in":100,"refresh_token":"refresh-1"}"#),
+            .init(#"{"access_token":"oauth-2","token_type":"Bearer","expires_in":100,"refresh_token":"refresh-2"}"#),
+            .init(#"{"access_token":"oauth-3","token_type":"Bearer","expires_in":100}"#),
+        ])
+        let resource = VertesiaClient.defaultBaseURL
+        let oauth = try VertesiaOAuthClient(
+            clientID: "app + id",
+            authorizationEndpoint: URL(string: "https://login.example.org/oauth/authorize?issuer=dev")!,
+            tokenEndpoint: URL(string: "https://sts.example.org/oauth/token")!,
+            redirectURI: URL(string: "org.example.desktop:/callback?fixed=desktop")!,
+            resource: resource, scopes: ["offline_access", "content:read"],
+            issuer: URL(string: "https://sts.example.org")!, endpoint: transport.endpoint
+        )
+        let login = try oauth.beginAuthorization()
+        let query = try #require(URLComponents(url: login.url, resolvingAgainstBaseURL: false)?.percentEncodedQuery)
+        let parameters = try decodeForm(query)
+        let state = try #require(parameters["state"])
+        #expect(state.count == 43)
+        #expect(parameters["client_id"] == "app + id")
+        #expect(parameters["response_type"] == "code")
+        #expect(parameters["code_challenge_method"] == "S256")
+        #expect(parameters["issuer"] == "dev")
+        #expect(parameters["scope"] == "offline_access content:read")
 
-    let untrusted = URL(string: "org.example.desktop:/callback?fixed=desktop&code=wrong&state=wrong&iss=https://sts.example.org")!
-    await #expect(throws: VertesiaTokenError.invalidCallback) {
-        try await oauth.completeAuthorization(login, callback: untrusted)
+        let untrusted = URL(string: "org.example.desktop:/callback?fixed=desktop&code=wrong&state=wrong&iss=https://sts.example.org")!
+        await #expect(throws: VertesiaTokenError.invalidCallback) {
+            try await oauth.completeAuthorization(login, callback: untrusted)
+        }
+        let mixedIssuer = URL(string: "org.example.desktop:/callback?fixed=desktop&code=wrong&state=\(state)&iss=https://other.example.org")!
+        await #expect(throws: VertesiaTokenError.invalidCallback) {
+            try await oauth.completeAuthorization(login, callback: mixedIssuer)
+        }
+        #expect(transport.requests.value.isEmpty)
+
+        let callback = URL(string: "org.example.desktop:/callback?fixed=desktop&state=\(state)&code=a%2Bb%26c&iss=https://sts.example.org")!
+        let credentials = try await oauth.completeAuthorization(login, callback: callback)
+        let codeExchange = try #require(transport.requests.value.first).formFields()
+        #expect(codeExchange["grant_type"] == "authorization_code")
+        #expect(codeExchange["code"] == "a+b&c")
+        #expect(codeExchange["resource"] == resource.absoluteString)
+        let verifier = try #require(codeExchange["code_verifier"])
+        let challenge = Data(SHA256.hash(data: Data(verifier.utf8))).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        #expect(challenge == parameters["code_challenge"])
+
+        let persisted = OpenAPIMutex<[String]>([])
+        let session = oauth.session(credentials: credentials) { refreshed in
+            persisted.withValue { $0.append(refreshed.refreshToken ?? "") }
+        }
+        let client = VertesiaClient(oauth: session)
+        #expect(try await client.authorization(at: resource) == "Bearer oauth-1")
+        transport.advance(seconds: 91)
+        async let one = client.authorization(at: resource)
+        async let two = client.authorization(at: resource)
+        let refreshed = try await [one, two]
+        #expect(refreshed == ["Bearer oauth-2", "Bearer oauth-2"])
+        #expect(transport.requests.value.count == 2)
+
+        transport.advance(seconds: 91)
+        #expect(try await client.authorization(at: resource) == "Bearer oauth-3")
+        #expect(try transport.requests.value.dropFirst().map { try $0.formFields()["refresh_token"] } == [
+            "refresh-1", "refresh-2",
+        ])
+        #expect(persisted.value == ["refresh-2", "refresh-2"])
+        #expect(!(try await session.credentials().description.contains("refresh-2")))
     }
-    let mixedIssuer = URL(string: "org.example.desktop:/callback?fixed=desktop&code=wrong&state=\(state)&iss=https://other.example.org")!
-    await #expect(throws: VertesiaTokenError.invalidCallback) {
-        try await oauth.completeAuthorization(login, callback: mixedIssuer)
-    }
-    #expect(transport.requests.value.isEmpty)
-
-    let callback = URL(string: "org.example.desktop:/callback?fixed=desktop&state=\(state)&code=a%2Bb%26c&iss=https://sts.example.org")!
-    let credentials = try await oauth.completeAuthorization(login, callback: callback)
-    let codeExchange = try #require(transport.requests.value.first).formFields()
-    #expect(codeExchange["grant_type"] == "authorization_code")
-    #expect(codeExchange["code"] == "a+b&c")
-    #expect(codeExchange["resource"] == resource.absoluteString)
-    let verifier = try #require(codeExchange["code_verifier"])
-    let challenge = Data(SHA256.hash(data: Data(verifier.utf8))).base64EncodedString()
-        .replacingOccurrences(of: "+", with: "-")
-        .replacingOccurrences(of: "/", with: "_")
-        .replacingOccurrences(of: "=", with: "")
-    #expect(challenge == parameters["code_challenge"])
-
-    let persisted = OpenAPIMutex<[String]>([])
-    let session = oauth.session(credentials: credentials) { refreshed in
-        persisted.withValue { $0.append(refreshed.refreshToken ?? "") }
-    }
-    let client = VertesiaClient(oauth: session)
-    #expect(try await client.authorization(at: resource) == "Bearer oauth-1")
-    transport.advance(seconds: 91)
-    async let one = client.authorization(at: resource)
-    async let two = client.authorization(at: resource)
-    let refreshed = try await [one, two]
-    #expect(refreshed == ["Bearer oauth-2", "Bearer oauth-2"])
-    #expect(transport.requests.value.count == 2)
-
-    transport.advance(seconds: 91)
-    #expect(try await client.authorization(at: resource) == "Bearer oauth-3")
-    #expect(try transport.requests.value.dropFirst().map { try $0.formFields()["refresh_token"] } == [
-        "refresh-1", "refresh-2",
-    ])
-    #expect(persisted.value == ["refresh-2", "refresh-2"])
-    #expect(!(try await session.credentials().description.contains("refresh-2")))
 }
 #endif
 
