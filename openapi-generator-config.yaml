@@ -1,0 +1,30 @@
+generatorName: swift6
+gitHost: github.com
+gitUserId: vertesia
+gitRepoId: vertesia-client-swift
+
+globalProperties:
+  apiDocs: "false"
+  modelDocs: "false"
+  apiTests: "false"
+  modelTests: "false"
+
+modelNameMappings:
+  Task: VertesiaTask
+
+nameMappings:
+  additionalProperties: schemaAdditionalProperties
+  await: awaitResult
+  container: containerFormat
+
+enumNameMappings:
+  _self: sameFrame
+
+additionalProperties:
+  projectName: VertesiaClient
+  useSPMFileStructure: true
+  apiStaticMethod: false
+  identifiableModels: false
+  library: urlsession
+  enumUnknownDefaultCase: true
+  oneOfUnknownDefaultCase: true
