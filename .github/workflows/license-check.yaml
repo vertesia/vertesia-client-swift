@@ -11,6 +11,26 @@ permissions:
   contents: read
 
 jobs:
+  # GitHub's dependency graph reads SwiftPM dependencies only from Package.resolved, so a dependency
+  # added to Package.swift alone would pass the license review unseen. Fail when the committed
+  # Package.resolved is missing or differs from what Package.swift resolves to.
+  swiftpm-resolved:
+    name: Package.resolved matches Package.swift
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Resolve the package dependencies
+        run: |
+          set -euo pipefail
+          swift package resolve
+          if [[ -n "$(git status --porcelain --ignored -- Package.resolved)" ]]; then
+            echo "::error file=Package.swift::Package.resolved is missing or out of date. Run 'swift package resolve' and commit Package.resolved: the license review reads dependencies only from it."
+            git --no-pager diff -- Package.resolved || true
+            exit 1
+          fi
+
   dependency-review:
     name: Dependency license review
     runs-on: ubuntu-latest
@@ -26,6 +46,7 @@ jobs:
           # the policy as stated (block these licenses, accept everything else).
           deny-licenses: >-
             AGPL-1.0-only, AGPL-1.0-or-later, AGPL-3.0-only, AGPL-3.0-or-later,
+            GPL-1.0-only, GPL-1.0-or-later,
             GPL-2.0-only, GPL-2.0-or-later, GPL-3.0-only, GPL-3.0-or-later,
             LGPL-2.0-only, LGPL-2.0-or-later, LGPL-2.1-only, LGPL-2.1-or-later,
             LGPL-3.0-only, LGPL-3.0-or-later,
